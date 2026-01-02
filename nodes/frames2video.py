@@ -1,6 +1,7 @@
 import os
 import subprocess
-from ..func import get_image_size,generate_template_string
+import tempfile
+from ..func import get_image_size
 
 class Frames2Video:
  
@@ -64,75 +65,66 @@ class Frames2Video:
 
             # 构建ffmpeg命令
             width,height = get_image_size(images[0]);
-            img_template_string = generate_template_string(os.path.basename(images[0]))
-            if audio_path != '':
+            
+            # Create a temporary file list for FFmpeg concat demuxer
+            # This approach works with any filename pattern and handles many images efficiently
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                filelist_path = f.name
+                # Write each image path to the file list
+                # Format: file 'path' with duration for each frame
+                frame_duration = 1.0 / fps
+                for img in images:
+                    # Normalize path separators for FFmpeg (use forward slashes)
+                    img_path = img.replace('\\', '/')
+                    # Escape single quotes in the path
+                    img_path_escaped = img_path.replace("'", "'\\''")
+                    f.write(f"file '{img_path_escaped}'\n")
+                    f.write(f"duration {frame_duration}\n")
+                # Add the last frame again without duration to ensure it's displayed
+                if images:
+                    last_img = images[-1].replace('\\', '/').replace("'", "'\\''")
+                    f.write(f"file '{last_img}'\n")
+            
+            try:
+                # Build FFmpeg command using concat demuxer
+                cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', filelist_path]
+                
+                # Add audio if provided
+                if audio_path != '':
+                    cmd.extend(['-i', audio_path])
+                    cmd.append('-shortest')
+                
+                # Add video filter for scaling
+                cmd.extend(['-vf', f'scale={width}:{height}'])
+                
+                # Add video encoding options
                 if device == "CPU":
-                    cmd = [
-                        'ffmpeg',
-                        '-framerate', str(fps),
-                        '-i', f'{frame_path}/{img_template_string}',
-                        '-i', audio_path,  # 添加音频文件路径
-                        '-vf', f'scale={width}:{height}',
-                        '-c:v', 'libx264',
-                        '-crf', '28',
-                        '-pix_fmt', 'yuv420p',
-                        '-shortest',  
-                        '-y',
-                        str(output_path)
-                    ]
+                    cmd.extend(['-c:v', 'libx264', '-crf', '28'])
                 else:
-                    cmd = [
-                        'ffmpeg',
-                        '-framerate', str(fps),
-                        '-i', f'{frame_path}/{img_template_string}',
-                        '-i', audio_path,  # 添加音频文件路径
-                        '-vf', f'scale={width}:{height}',
-                        '-c:v', 'h264_nvenc',  # 使用 GPU 加速的 NVENC 编码器
-                        '-preset', 'fast',  # 选择一个合适的 preset
-                        '-cq', '22',  # 设置质量，适应NVENC（类似 CRF）
-                        '-pix_fmt', 'yuv420p',
-                        '-shortest',  
-                        '-y',
-                        str(output_path)
-                    ]
-
-            else:
-                if device == "CPU":
-                    cmd = [
-                        'ffmpeg',
-                        '-framerate', str(fps),
-                        '-i', f'{frame_path}/{img_template_string}',
-                        '-vf', f'scale={width}:{height}',
-                        '-c:v', 'libx264',
-                        '-crf', '28',
-                        '-pix_fmt', 'yuv420p',
-                        '-shortest',  
-                        '-y',
-                        str(output_path)
-                    ]
+                    cmd.extend(['-c:v', 'h264_nvenc', '-preset', 'fast', '-cq', '22'])
+                
+                # Add audio codec if audio is provided
+                if audio_path != '':
+                    cmd.extend(['-c:a', 'aac'])
+                
+                cmd.extend(['-pix_fmt', 'yuv420p', '-y', str(output_path)])
+                
+                # 执行ffmpeg命令
+                result = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                if result.returncode != 0:
+                    # 如果有错误，输出错误信息
+                     print(f"Error: {result.stderr.decode('utf-8')}")
+                     raise ValueError(f"Error: {result.stderr.decode('utf-8')}")
                 else:
-                    cmd = [
-                        'ffmpeg',
-                        '-framerate', str(fps),
-                        '-i', f'{frame_path}/{img_template_string}',
-                        '-vf', f'scale={width}:{height}',
-                        '-c:v', 'h264_nvenc',  # 使用 GPU 加速的 NVENC 编码器
-                        '-preset', 'fast',  # 选择一个合适的 preset
-                        '-cq', '22',  # 设置质量，适应NVENC（类似 CRF）
-                        '-pix_fmt', 'yuv420p',
-                        '-shortest',  
-                        '-y',
-                        str(output_path)
-                    ]
-            # 执行ffmpeg命令
-            result = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-            if result.returncode != 0:
-                # 如果有错误，输出错误信息
-                 print(f"Error: {result.stderr.decode('utf-8')}")
-                 raise ValueError(f"Error: {result.stderr.decode('utf-8')}")
-            else:
-                # 输出标准输出信息
-                print(result.stdout)
+                    # 输出标准输出信息
+                    print(result.stdout)
+            finally:
+                # Clean up temporary file list
+                try:
+                    os.unlink(filelist_path)
+                except:
+                    pass
+            
             frame_path = str(frame_path) # 输出路径为字符串
             return (frame_path,output_path)
         except Exception as e:

@@ -132,8 +132,18 @@ def get_image_paths_from_directory(directory, start_index, length):
 #     return image_paths
 
 def generate_template_string(filename):
-    match = re.search(r'\d+', filename)
-    return re.sub(r'\d+', lambda x: f'%0{len(x.group())}d', filename) if match else filename
+    # Find all sequences of digits
+    matches = list(re.finditer(r'\d+', filename))
+    if not matches:
+        return filename
+    
+    # Only replace the last sequence of digits (the frame number)
+    # This ensures FFmpeg gets a single sequence pattern like %05d, not multiple patterns
+    last_match = matches[-1]
+    start, end = last_match.span()
+    digit_length = len(last_match.group())
+    # Replace only the last sequence with FFmpeg pattern
+    return filename[:start] + f'%0{digit_length}d' + filename[end:]
 
 def tensor2pil(image):
     return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
