@@ -92,7 +92,6 @@ class Frames2Video:
                 # Add audio if provided
                 if audio_path != '':
                     cmd.extend(['-i', audio_path])
-                    cmd.append('-shortest')
                 
                 # Add video filter for scaling
                 cmd.extend(['-vf', f'scale={width}:{height}'])
