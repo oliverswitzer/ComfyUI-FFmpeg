@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import tempfile
 from ..func import get_image_size
@@ -57,8 +58,19 @@ class Frames2Video:
             valid_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff')
             # 获取所有图片并按文件名排序
             images = [os.path.join(frame_path, f) for f in os.listdir(frame_path) if f.endswith(valid_extensions)]
-            # 按文件名进行排序
-            images.sort()
+
+            # Natural sort key function - handles numeric sequences in filenames correctly
+            # e.g., SCENE__1, SCENE__2, ..., SCENE__9, SCENE__10, SCENE__11 (not SCENE__10, SCENE__11, SCENE__1, ...)
+            def natural_sort_key(path):
+                # Extract just the filename for sorting
+                filename = os.path.basename(path)
+                # Split into text and number parts, convert numbers to integers
+                parts = re.split(r'(\d+)', filename)
+                # Convert numeric parts to integers, keep text parts as strings
+                return [int(part) if part.isdigit() else part for part in parts]
+
+            # 按文件名进行自然排序 (Natural sort by filename)
+            images.sort(key=natural_sort_key)
             
             if len(images) == 0:
                 raise FileNotFoundError("目录："+frame_path+"中没有图片文件（No image files found in directory："+frame_path+"）")
